@@ -9,7 +9,7 @@
 #include <SPI.h>
 
 // ── Firmware version ────────────────────────────────────────
-#define FW_VERSION "1.0.4"
+#define FW_VERSION "1.0.6"
 #define OTA_VERSION_URL "https://arc.ntwk.co.uk/CheapClock/version.txt"
 #define OTA_FIRMWARE_URL "https://arc.ntwk.co.uk/CheapClock/CheapClock.ino.bin"
 
@@ -219,7 +219,7 @@ uint8_t voacapGrid[VOACAP_NUM_BANDS][VOACAP_NUM_REGIONS];
 unsigned long lastVoacapCalc = 0;
 
 // ── PSKReporter data ─────────────────────────────────────────
-#define PSKR_REFRESH_MS 60000UL  // 1 minute
+#define PSKR_REFRESH_MS 300000UL  // 5 minutes (PSKReporter cache interval)
 #define MAX_PSKR 40
 struct PSKRSpot {
   char  callsign[12];  // receiver callsign
@@ -245,6 +245,7 @@ const char* screenNames[NUM_SCREENS] = {
   "POTA","SOTA","WSPR","VOACAP","PSKRptr"
 };
 DisplayMode dispMode      = DISP_SOLAR;
+DisplayMode prevDispMode  = DISP_SOLAR;  // screen active before entering settings
 unsigned long lastSwitch  = 0;
 
 // ── UI State ──────────────────────────────────────────────────
@@ -2501,7 +2502,7 @@ bool fetchPSKReporter() {
   http.begin(client, url);
   http.setTimeout(10000);
   int code = http.GET();
-  if (code != HTTP_CODE_OK) { http.end(); return false; }
+  if (code != HTTP_CODE_OK) { http.end(); lastPSKRFetch = millis(); return false; }
   String xml = http.getString();
   http.end();
 
@@ -3759,9 +3760,28 @@ bool handleMenuTouch(uint16_t tx, uint16_t ty) {
   // Close button
   if (tx >= 278 && ty <= 36) {
     uiState = STATE_MAIN;
-    dispMode = DISP_SOLAR;
+    // Restore previous screen; if it was disabled, find the next enabled one
+    dispMode = prevDispMode;
+    if (!screenEnabled[(int)dispMode]) {
+      for (int i = 0; i < NUM_SCREENS; i++) {
+        dispMode = (DisplayMode)((((int)dispMode) + 1) % NUM_SCREENS);
+        if (screenEnabled[(int)dispMode]) break;
+      }
+    }
     lastSwitch = millis();
-    drawDisplay(solar);
+    // Redraw whichever screen we landed on
+    switch (dispMode) {
+      case DISP_SOLAR:   drawDisplay(solar);  break;
+      case DISP_DX:      drawDXCluster();     break;
+      case DISP_MAP:     drawGreylineMap();   break;
+      case DISP_CONTEST: drawContestCalendar(); break;
+      case DISP_CLOCK:   drawClockDisplay();  break;
+      case DISP_POTA:    drawPOTASpots();     break;
+      case DISP_SOTA:    drawSOTASpots();     break;
+      case DISP_WSPR:    drawWSPR();          break;
+      case DISP_VOACAP:  drawVOACAP();        break;
+      case DISP_PSKR:    drawPSKMap();        break;
+    }
     return false;
   }
 
@@ -4105,6 +4125,7 @@ void loop() {
         if (tx >= 200 && ty <= 80) {
           // Top-right corner → settings
           selectedDXSpot = -1;
+          prevDispMode = dispMode;
           uiState = STATE_MENU;
           drawSettingsMenu();
         } else if (dispMode == DISP_DX) {
@@ -4200,7 +4221,6 @@ void loop() {
       if (dispMode == DISP_MAP)    drawGreylineMap();
       if (dispMode == DISP_CLOCK)  drawClockDisplay();
       if (dispMode == DISP_VOACAP) { calcVOACAP(); drawVOACAP(); }
-      if (dispMode == DISP_PSKR)   drawPSKMap();
     }
 
     // Refresh clock time every minute (only updates time area, no flicker)

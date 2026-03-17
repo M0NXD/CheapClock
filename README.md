@@ -162,7 +162,7 @@ Format a micro SD card as FAT32 and create a `config.txt` file to store your set
 | SOTA spots | [api2.sota.org.uk](https://api2.sota.org.uk/api/spots/30) | 60s |
 | WSPR activity | [wspr.live](https://db1.wspr.live/) | 5 min |
 | HF propagation | Calculated locally (ITU-R model + SSN) | 5 min |
-| PSKReporter | [pskreporter.info](https://retrieve.pskreporter.info/) | 60s |
+| PSKReporter | [pskreporter.info](https://retrieve.pskreporter.info/) | 5 min |
 | Weather | [OpenWeatherMap](https://openweathermap.org/api) | via clock refresh |
 | Time | NTP (pool.ntp.org) | on boot |
 
