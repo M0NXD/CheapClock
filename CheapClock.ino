@@ -9,7 +9,7 @@
 #include <SPI.h>
 
 // ── Firmware version ────────────────────────────────────────
-#define FW_VERSION "1.0.6"
+#define FW_VERSION "1.0.7"
 #define OTA_VERSION_URL "https://arc.ntwk.co.uk/CheapClock/version.txt"
 #define OTA_FIRMWARE_URL "https://arc.ntwk.co.uk/CheapClock/CheapClock.ino.bin"
 
@@ -240,6 +240,7 @@ int selectedDXSpot = -1;  // -1 = none selected
 enum DisplayMode { DISP_SOLAR, DISP_DX, DISP_MAP, DISP_CONTEST, DISP_CLOCK, DISP_POTA, DISP_SOTA, DISP_WSPR, DISP_VOACAP, DISP_PSKR };
 #define NUM_SCREENS 10
 bool screenEnabled[NUM_SCREENS] = {true,true,true,true,true,true,true,true,true,true};
+int  screenOrder[NUM_SCREENS]   = {0,1,2,3,4,5,6,7,8,9};  // display order → enum index
 const char* screenNames[NUM_SCREENS] = {
   "Solar","DX","Greyline","Contests","Clock",
   "POTA","SOTA","WSPR","VOACAP","PSKRptr"
@@ -339,6 +340,19 @@ void loadSettingsSD() {
       for (int i = 0; i < NUM_SCREENS && i < (int)val.length(); i++)
         screenEnabled[i] = (val[i] != '0');
     }
+    else if (key == "screenorder") {
+      if ((int)val.length() == NUM_SCREENS) {
+        bool seen[NUM_SCREENS] = {};
+        bool valid = true;
+        for (int i = 0; i < NUM_SCREENS; i++) {
+          int v = val[i] - '0';
+          if (v < 0 || v >= NUM_SCREENS || seen[v]) { valid = false; break; }
+          seen[v] = true;
+        }
+        if (valid)
+          for (int i = 0; i < NUM_SCREENS; i++) screenOrder[i] = val[i] - '0';
+      }
+    }
   }
   f.close();
 }
@@ -357,6 +371,9 @@ void saveSettingsSD() {
   f.printf("screentimeout=%d\n", screenTimeout);
   f.print("screens=");
   for (int i = 0; i < NUM_SCREENS; i++) f.print(screenEnabled[i] ? '1' : '0');
+  f.print('\n');
+  f.print("screenorder=");
+  for (int i = 0; i < NUM_SCREENS; i++) f.print((char)('0' + screenOrder[i]));
   f.print('\n');
   if (WiFi.status() == WL_CONNECTED) {
     f.printf("ssid=%s\n", WiFi.SSID().c_str());
@@ -2625,15 +2642,19 @@ void drawPSKMap() {
 void advanceDisplayMode() {
   lastSwitch = millis();
 
-  // Find the next enabled screen
-  int cur = (int)dispMode;
-  int next = cur;
+  // Find current position in screenOrder
+  int curPos = 0;
   for (int i = 0; i < NUM_SCREENS; i++) {
-    next = (next + 1) % NUM_SCREENS;
-    if (screenEnabled[next]) break;
+    if (screenOrder[i] == (int)dispMode) { curPos = i; break; }
   }
-  if (!screenEnabled[next]) return;  // no screens enabled
-  dispMode = (DisplayMode)next;
+  // Advance to next enabled screen in display order
+  int nextPos = curPos;
+  for (int i = 0; i < NUM_SCREENS; i++) {
+    nextPos = (nextPos + 1) % NUM_SCREENS;
+    if (screenEnabled[screenOrder[nextPos]]) break;
+  }
+  if (!screenEnabled[screenOrder[nextPos]]) return;  // no screens enabled
+  dispMode = (DisplayMode)screenOrder[nextPos];
 
   // Fetch data and draw the new screen
   switch (dispMode) {
@@ -3130,27 +3151,46 @@ void drawSettingsMenu() {
     tft.print("Updates from arc.ntwk.co.uk");
 
   } else if (settingsPage == 6) {
-    // ── Page 7: Screen Toggles ──────────────────────────────
-    for (int i = 0; i < NUM_SCREENS; i++) {
-      int col = i / 5;         // 0=left, 1=right
-      int row = i % 5;
-      int cx  = col == 0 ? 4 : 164;
+    // ── Page 7: Screen Toggles & Order ──────────────────────
+    for (int pos = 0; pos < NUM_SCREENS; pos++) {
+      int i   = screenOrder[pos];   // actual screen enum index
+      int col = pos / 5;            // 0=left, 1=right
+      int row = pos % 5;
+      int ax  = col == 0 ?  4 : 164;  // arrow area x (16px wide)
+      int bx  = col == 0 ? 22 : 182;  // button x (132px wide)
       int cy  = 42 + row * 33;
       bool on = screenEnabled[i];
 
-      tft.fillRoundRect(cx, cy, 150, 28, 4, C_KEY_BG);
-      tft.drawRoundRect(cx, cy, 150, 28, 4, on ? C_GREEN : C_DIM);
+      // Arrow area background
+      tft.fillRect(ax, cy, 16, 28, C_MENU_BG);
+      tft.setTextSize(1);
+      // ▲ (up) — skip on first row of each column
+      if (row > 0) {
+        tft.setTextColor(C_DIM);
+        tft.setCursor(ax + 4, cy + 3);
+        tft.print("^");
+      }
+      // ▼ (down) — skip on last row of each column
+      if (row < 4) {
+        tft.setTextColor(C_DIM);
+        tft.setCursor(ax + 4, cy + 18);
+        tft.print("v");
+      }
+
+      // Toggle button
+      tft.fillRoundRect(bx, cy, 132, 28, 4, C_KEY_BG);
+      tft.drawRoundRect(bx, cy, 132, 28, 4, on ? C_GREEN : C_DIM);
       tft.setTextSize(2);
       tft.setTextColor(on ? C_WHITE : C_DIM);
-      tft.setCursor(cx + 6, cy + 6);
+      tft.setCursor(bx + 5, cy + 6);
       tft.print(screenNames[i]);
 
       // ON/OFF pill
       uint32_t pillCol = on ? C_GREEN : 0x404040;
-      tft.fillRoundRect(cx + 108, cy + 4, 36, 20, 4, pillCol);
+      tft.fillRoundRect(bx + 92, cy + 4, 36, 20, 4, pillCol);
       tft.setTextSize(1);
       tft.setTextColor(C_WHITE);
-      tft.setCursor(cx + 113, cy + 10);
+      tft.setCursor(bx + 97, cy + 10);
       tft.print(on ? "ON" : "OFF");
     }
   }
@@ -3760,12 +3800,19 @@ bool handleMenuTouch(uint16_t tx, uint16_t ty) {
   // Close button
   if (tx >= 278 && ty <= 36) {
     uiState = STATE_MAIN;
-    // Restore previous screen; if it was disabled, find the next enabled one
+    // Restore previous screen; if it was disabled, find the next enabled one in order
     dispMode = prevDispMode;
     if (!screenEnabled[(int)dispMode]) {
+      int curPos = 0;
       for (int i = 0; i < NUM_SCREENS; i++) {
-        dispMode = (DisplayMode)((((int)dispMode) + 1) % NUM_SCREENS);
-        if (screenEnabled[(int)dispMode]) break;
+        if (screenOrder[i] == (int)dispMode) { curPos = i; break; }
+      }
+      for (int i = 0; i < NUM_SCREENS; i++) {
+        curPos = (curPos + 1) % NUM_SCREENS;
+        if (screenEnabled[screenOrder[curPos]]) {
+          dispMode = (DisplayMode)screenOrder[curPos];
+          break;
+        }
       }
     }
     lastSwitch = millis();
@@ -3921,21 +3968,41 @@ bool handleMenuTouch(uint16_t tx, uint16_t ty) {
     }
   }
   else if (settingsPage == 6) {
-    // Screen toggle grid: 2 columns × 5 rows
+    // Screen toggle/order grid: 2 columns × 5 rows
     if (ty >= 42 && ty < 42 + 5 * 33) {
       int col = (tx >= 164) ? 1 : 0;
       int row = (ty - 42) / 33;
-      int idx = col * 5 + row;
-      if (idx >= 0 && idx < NUM_SCREENS) {
-        // Don't allow disabling the last enabled screen
-        if (screenEnabled[idx]) {
-          int cnt = 0;
-          for (int i = 0; i < NUM_SCREENS; i++) if (screenEnabled[i]) cnt++;
-          if (cnt <= 1) return false;
+      int pos = col * 5 + row;
+      int ax  = col == 0 ?  4 : 164;  // arrow area x
+      int bx  = col == 0 ? 22 : 182;  // button x
+
+      if (pos >= 0 && pos < NUM_SCREENS) {
+        if (tx >= ax && tx < ax + 16) {
+          // Arrow area tapped — reorder
+          int rowY = ty - (42 + row * 33);
+          if (rowY < 14 && row > 0) {
+            // ▲ — swap with item above
+            int tmp = screenOrder[pos]; screenOrder[pos] = screenOrder[pos - 1]; screenOrder[pos - 1] = tmp;
+            saveSettingsSD();
+            drawSettingsMenu();
+          } else if (rowY >= 14 && row < 4) {
+            // ▼ — swap with item below
+            int tmp = screenOrder[pos]; screenOrder[pos] = screenOrder[pos + 1]; screenOrder[pos + 1] = tmp;
+            saveSettingsSD();
+            drawSettingsMenu();
+          }
+        } else if (tx >= bx) {
+          // Toggle button tapped
+          int i = screenOrder[pos];
+          if (screenEnabled[i]) {
+            int cnt = 0;
+            for (int j = 0; j < NUM_SCREENS; j++) if (screenEnabled[j]) cnt++;
+            if (cnt <= 1) return false;
+          }
+          screenEnabled[i] = !screenEnabled[i];
+          saveSettingsSD();
+          drawSettingsMenu();
         }
-        screenEnabled[idx] = !screenEnabled[idx];
-        saveSettingsSD();
-        drawSettingsMenu();
         return false;
       }
     }
