@@ -109,13 +109,8 @@ Download and install the [Arduino IDE](https://www.arduino.cc/en/software) (v2.x
 
 ### 2. Add ESP32 board support
 
-1. Open **File > Preferences**
-2. In **Additional Board Manager URLs**, add:
-   ```
-   https://espressif.github.io/arduino-esp32/package_esp32_index.json
-   ```
-3. Open **Tools > Board > Boards Manager**
-4. Search for **esp32** and install **esp32 by Espressif Systems**
+1. Open **Tools > Board > Boards Manager**
+2. Search for **esp32** and install **esp32 by Espressif Systems**
 
 ### 3. Install libraries
 
