@@ -9,7 +9,7 @@
 #include <SPI.h>
 
 // ── Firmware version ────────────────────────────────────────
-#define FW_VERSION "1.0.7"
+#define FW_VERSION "1.0.8"
 #define OTA_VERSION_URL "https://arc.ntwk.co.uk/CheapClock/version.txt"
 #define OTA_FIRMWARE_URL "https://arc.ntwk.co.uk/CheapClock/CheapClock.ino.bin"
 
@@ -3741,7 +3741,18 @@ bool handlePassTouch(uint16_t tx, uint16_t ty) {
           delay(1500);
           uiState = STATE_MAIN;
           lastFetch = 0; // force refresh
-          drawDisplay(solar);
+          switch (dispMode) {
+            case DISP_SOLAR:   drawDisplay(solar);           break;
+            case DISP_DX:      drawDXCluster();              break;
+            case DISP_MAP:     drawGreylineMap();             break;
+            case DISP_CONTEST: drawContestCalendar();         break;
+            case DISP_CLOCK:   drawClockDisplay();            break;
+            case DISP_POTA:    drawPOTASpots();               break;
+            case DISP_SOTA:    drawSOTASpots();               break;
+            case DISP_WSPR:    drawWSPR();                    break;
+            case DISP_VOACAP:  calcVOACAP(); drawVOACAP();   break;
+            case DISP_PSKR:    drawPSKMap();                  break;
+          }
         } else {
           tft.fillRect(0, 0, 320, 84, 0x001020);
           tft.setTextSize(1);
@@ -4073,6 +4084,15 @@ void setup() {
     Serial.println("SD card not found - using defaults");
   }
 
+  // Set dispMode to first enabled screen in screenOrder
+  for (int i = 0; i < NUM_SCREENS; i++) {
+    if (screenEnabled[screenOrder[i]]) {
+      dispMode = (DisplayMode)screenOrder[i];
+      prevDispMode = dispMode;
+      break;
+    }
+  }
+
   // Determine WiFi credentials: SD overrides hardcoded if available
   const char* useSSID = (strlen(sdSSID) > 0) ? sdSSID : SSID;
   const char* usePass = (strlen(sdSSID) > 0) ? sdPassword : PASSWORD;
@@ -4124,7 +4144,18 @@ void setup() {
   if (fetchData(solar)) {
     fetchInProgress = false;
     lastFetchTime = millis();
-    drawDisplay(solar);
+    switch (dispMode) {
+      case DISP_SOLAR:   drawDisplay(solar);           break;
+      case DISP_DX:      drawDXCluster();              break;
+      case DISP_MAP:     drawGreylineMap();             break;
+      case DISP_CONTEST: drawContestCalendar();         break;
+      case DISP_CLOCK:   drawClockDisplay();            break;
+      case DISP_POTA:    drawPOTASpots();               break;
+      case DISP_SOTA:    drawSOTASpots();               break;
+      case DISP_WSPR:    drawWSPR();                    break;
+      case DISP_VOACAP:  calcVOACAP(); drawVOACAP();   break;
+      case DISP_PSKR:    drawPSKMap();                  break;
+    }
   } else {
     fetchInProgress = false;
     tft.setTextColor(C_RED);
@@ -4254,6 +4285,9 @@ void loop() {
           wifiRSSI[i]  = WiFi.RSSI(i);
         }
         drawWifiList();
+      } else if (result == WIFI_SCAN_FAILED || millis() - lastScan > 15000) {
+        // Scan failed or timed out — reset so re-scan can trigger
+        scanPending = false;
       }
     } else if (millis() - lastScan > 8000) {
       // Re-scan every 8 seconds
