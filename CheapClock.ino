@@ -9,7 +9,7 @@
 #include <SPI.h>
 
 // ── Firmware version ────────────────────────────────────────
-#define FW_VERSION "1.0.8"
+#define FW_VERSION "1.0.9"
 #define OTA_VERSION_URL "https://arc.ntwk.co.uk/CheapClock/version.txt"
 #define OTA_FIRMWARE_URL "https://arc.ntwk.co.uk/CheapClock/CheapClock.ino.bin"
 
@@ -44,6 +44,7 @@ uint8_t screenTimeout  = 0;      // minutes, 0 = disabled
 char    owmKey[40]     = "";     // OpenWeatherMap API key (set in config.txt)
 bool    screenAsleep   = false;
 unsigned long lastActivity = 0;
+bool    rotateDisplay  = false;  // rotate screen 180 degrees
 
 // ── Colour palette (RGB565) ───────────────────────────────────
 #define C_BG    0x000000
@@ -336,6 +337,7 @@ void loadSettingsSD() {
     else if (key == "cyclespeed") cycleSpeed = constrain(val.toInt(), 5, 120);
     else if (key == "screentimeout") screenTimeout = constrain(val.toInt(), 0, 30);
     else if (key == "owmkey") val.toCharArray(owmKey, sizeof(owmKey));
+    else if (key == "rotate") rotateDisplay = (val.toInt() != 0);
     else if (key == "screens") {
       for (int i = 0; i < NUM_SCREENS && i < (int)val.length(); i++)
         screenEnabled[i] = (val[i] != '0');
@@ -375,6 +377,7 @@ void saveSettingsSD() {
   f.print("screenorder=");
   for (int i = 0; i < NUM_SCREENS; i++) f.print((char)('0' + screenOrder[i]));
   f.print('\n');
+  f.printf("rotate=%d\n", rotateDisplay ? 1 : 0);
   if (WiFi.status() == WL_CONNECTED) {
     f.printf("ssid=%s\n", WiFi.SSID().c_str());
     // Only save password if we have it from the last manual entry
@@ -2994,63 +2997,76 @@ void drawSettingsMenu() {
     tft.print("+");
 
   } else if (settingsPage == 2) {
-    // ── Page 3: Auto Cycle + Screen Timeout ─────────────────
+    // ── Page 3: Auto Cycle, Sleep, Auto Brightness, Rotate ───
 
-    // Auto-cycle toggle
-    tft.fillRoundRect(10, 52, 300, 40, 6, C_KEY_BG);
-    tft.drawRoundRect(10, 52, 300, 40, 6, C_DIM);
+    // Auto-cycle toggle (y=44-78)
+    tft.fillRoundRect(10, 44, 300, 34, 6, C_KEY_BG);
+    tft.drawRoundRect(10, 44, 300, 34, 6, C_DIM);
     tft.setTextSize(2);
     tft.setTextColor(C_WHITE);
-    tft.setCursor(22, 62);
+    tft.setCursor(22, 54);
     tft.print("Auto Cycle:");
     uint32_t acCol = autoCycle ? C_GREEN : 0xFFAA44;
-    tft.fillRoundRect(220, 58, 70, 28, 6, acCol);
+    tft.fillRoundRect(220, 50, 70, 24, 6, acCol);
     tft.setTextColor(C_WHITE);
-    tft.setCursor(232, 64);
+    tft.setCursor(232, 56);
     tft.print(autoCycle ? "ON" : "OFF");
 
-    // Screen timeout: [-] [value] [+]
-    tft.fillRoundRect(10, 102, 300, 40, 6, C_KEY_BG);
-    tft.drawRoundRect(10, 102, 300, 40, 6, C_DIM);
+    // Screen timeout: [-] [value] [+] (y=86-120)
+    tft.fillRoundRect(10, 86, 300, 34, 6, C_KEY_BG);
+    tft.drawRoundRect(10, 86, 300, 34, 6, C_DIM);
     tft.setTextSize(2);
     tft.setTextColor(C_WHITE);
-    tft.setCursor(22, 112);
+    tft.setCursor(22, 96);
     tft.print("Sleep:");
 
     // Minus
-    tft.fillRoundRect(150, 108, 36, 28, 4, C_KEY_SPL);
+    tft.fillRoundRect(150, 92, 36, 24, 4, C_KEY_SPL);
     tft.setTextColor(C_WHITE);
-    tft.setCursor(162, 114);
+    tft.setCursor(162, 98);
     tft.print("-");
 
     // Value
     char stBuf[8];
     if (screenTimeout == 0) snprintf(stBuf, sizeof(stBuf), "OFF");
     else snprintf(stBuf, sizeof(stBuf), "%dm", screenTimeout);
-    tft.fillRoundRect(190, 108, 52, 28, 4, C_KEY_BG);
+    tft.fillRoundRect(190, 92, 52, 24, 4, C_KEY_BG);
     tft.setTextColor(C_CYAN);
     int stw = tft.textWidth(stBuf);
-    tft.setCursor(190 + (52 - stw) / 2, 114);
+    tft.setCursor(190 + (52 - stw) / 2, 98);
     tft.print(stBuf);
 
     // Plus
-    tft.fillRoundRect(246, 108, 36, 28, 4, C_KEY_SPL);
+    tft.fillRoundRect(246, 92, 36, 24, 4, C_KEY_SPL);
     tft.setTextColor(C_WHITE);
-    tft.setCursor(258, 114);
+    tft.setCursor(258, 98);
     tft.print("+");
 
-    // Auto Brightness toggle (y=152-182)
-    tft.fillRoundRect(10, 152, 300, 40, 6, C_KEY_BG);
-    tft.drawRoundRect(10, 152, 300, 40, 6, C_DIM);
+    // Auto Brightness toggle (y=128-162)
+    tft.fillRoundRect(10, 128, 300, 34, 6, C_KEY_BG);
+    tft.drawRoundRect(10, 128, 300, 34, 6, C_DIM);
     tft.setTextSize(2);
     tft.setTextColor(C_WHITE);
-    tft.setCursor(22, 162);
+    tft.setCursor(22, 138);
     tft.print("Auto Bright:");
     uint32_t abCol = autoBrightness ? C_GREEN : 0xFFAA44;
-    tft.fillRoundRect(220, 158, 70, 28, 6, abCol);
+    tft.fillRoundRect(220, 134, 70, 24, 6, abCol);
     tft.setTextColor(C_WHITE);
-    tft.setCursor(232, 164);
+    tft.setCursor(232, 140);
     tft.print(autoBrightness ? " ON" : "OFF");
+
+    // Rotate 180° toggle (y=170-204)
+    tft.fillRoundRect(10, 170, 300, 34, 6, C_KEY_BG);
+    tft.drawRoundRect(10, 170, 300, 34, 6, C_DIM);
+    tft.setTextSize(2);
+    tft.setTextColor(C_WHITE);
+    tft.setCursor(22, 180);
+    tft.print("Rotate 180\xF8:");
+    uint32_t rdCol = rotateDisplay ? C_GREEN : 0xFFAA44;
+    tft.fillRoundRect(220, 176, 70, 24, 6, rdCol);
+    tft.setTextColor(C_WHITE);
+    tft.setCursor(232, 182);
+    tft.print(rotateDisplay ? " ON" : "OFF");
 
   } else if (settingsPage == 3) {
     // ── Page 4: Cycle Speed ───────────────────────────────────
@@ -3924,31 +3940,39 @@ bool handleMenuTouch(uint16_t tx, uint16_t ty) {
       return false;
     }
   } else if (settingsPage == 2) {
-    // Auto-cycle toggle (y=52 to y=92)
-    if (ty >= 52 && ty <= 92) {
+    // Auto-cycle toggle (y=44 to y=78)
+    if (ty >= 44 && ty <= 78) {
       autoCycle = !autoCycle;
       saveSettingsSD();
       drawSettingsMenu();
       return false;
     }
-    // Screen timeout minus (x=150-186, y=102-142)
-    if (ty >= 102 && ty <= 142 && tx >= 150 && tx <= 186) {
+    // Screen timeout minus (x=150-186, y=86-120)
+    if (ty >= 86 && ty <= 120 && tx >= 150 && tx <= 186) {
       if (screenTimeout > 0) screenTimeout--;
       saveSettingsSD();
       drawSettingsMenu();
       return false;
     }
-    // Screen timeout plus (x=246-282, y=102-142)
-    if (ty >= 102 && ty <= 142 && tx >= 246 && tx <= 282) {
+    // Screen timeout plus (x=246-282, y=86-120)
+    if (ty >= 86 && ty <= 120 && tx >= 246 && tx <= 282) {
       if (screenTimeout < 30) screenTimeout++;
       saveSettingsSD();
       drawSettingsMenu();
       return false;
     }
-    // Auto Brightness toggle (y=152-192)
-    if (ty >= 152 && ty <= 192) {
+    // Auto Brightness toggle (y=128-162)
+    if (ty >= 128 && ty <= 162) {
       autoBrightness = !autoBrightness;
       if (!autoBrightness) applyBrightness();  // restore manual brightness
+      saveSettingsSD();
+      drawSettingsMenu();
+      return false;
+    }
+    // Rotate 180° toggle (y=170-204)
+    if (ty >= 170 && ty <= 204) {
+      rotateDisplay = !rotateDisplay;
+      tft.setRotation(rotateDisplay ? 3 : 1);
       saveSettingsSD();
       drawSettingsMenu();
       return false;
@@ -4080,6 +4104,7 @@ void setup() {
     Serial.println("SD card initialized");
     loadSettingsSD();
     applyBrightness();
+    if (rotateDisplay) tft.setRotation(3);
   } else {
     Serial.println("SD card not found - using defaults");
   }
@@ -4181,10 +4206,11 @@ void loop() {
   uint16_t rawX = touched ? ti.x[0] : 0;
   uint16_t rawY = touched ? ti.y[0] : 0;
 
-  // CST820 is portrait (240×320). Screen is landscape rotation=1 (320×240).
-  // Map: landscape X (0-319) = raw Y, landscape Y (0-239) = raw X
-  uint16_t tx = rawY;        // landscape X
-  uint16_t ty = 239 - rawX; // landscape Y (inverted)
+  // CST820 is portrait (240×320). Screen is landscape (320×240).
+  // rotation=1 (normal):  tx = rawY,       ty = 239 - rawX
+  // rotation=3 (180°):    tx = 319 - rawY, ty = rawX
+  uint16_t tx = rotateDisplay ? (319 - rawY) : rawY;
+  uint16_t ty = rotateDisplay ? rawX : (239 - rawX);
 
   // ── Screen sleep: wake on any touch ───────────────────────
   if (touched && screenAsleep) {
