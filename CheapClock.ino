@@ -9,7 +9,7 @@
 #include <SPI.h>
 
 // ── Firmware version ────────────────────────────────────────
-#define FW_VERSION "1.0.9"
+#define FW_VERSION "1.1.0"
 #define OTA_VERSION_URL "https://arc.ntwk.co.uk/CheapClock/version.txt"
 #define OTA_FIRMWARE_URL "https://arc.ntwk.co.uk/CheapClock/CheapClock.ino.bin"
 
@@ -21,6 +21,12 @@ const unsigned long REFRESH_MS = 60000UL;
 
 // ── LDR (onboard photoresistor) ──────────────────────────────
 #define LDR_PIN 34   // ADC1_CH6, input-only
+
+// ── RGB LED (active LOW, CYD onboard) ────────────────────────
+#define LED_R        4
+#define LED_G        16
+#define LED_B        17
+#define LED_CYCLE_MS 1000   // milliseconds per colour step
 
 // ── SD Card (VSPI: CS=5, MOSI=23, MISO=19, SCK=18) ─────────
 #define SD_CS   5
@@ -54,7 +60,7 @@ bool    rotateDisplay  = false;  // rotate screen 180 degrees
 #define C_WHITE 0xFFFFFF
 #define C_GREEN 0x00FF00
 #define C_AMBER 0xFFDD44
-#define C_RED   0xFFAA44
+#define C_RED   0xFF2200
 #define C_DIV   0x202830
 #define C_DIM   0xB0B0B0
 #define C_MENU_BG   0x101820
@@ -270,7 +276,8 @@ String   newPassword    = "";
 bool     shiftOn        = false;
 bool     numMode        = false;
 bool     passVisible    = false;
-bool     ledOn          = false;  // RGB LED (active LOW on GPIO 4)
+bool     ledOn          = false;  // RGB LED cycling enable
+uint8_t  ledColorIdx    = 0;      // current colour step (0-6)
 unsigned long lastScan  = 0;
 bool     scanPending    = false;
 
@@ -389,6 +396,27 @@ void saveSettingsSD() {
       f.printf("password=%s\n", sdPassword);
   }
   f.close();
+}
+
+// ── RGB LED colour cycle ──────────────────────────────────────
+void updateLedCycle() {
+  static unsigned long lastChange = 0;
+  if (!ledOn || millis() - lastChange < LED_CYCLE_MS) return;
+  lastChange = millis();
+  ledColorIdx = (ledColorIdx + 1) % 7;
+  // {R, G, B} as active-LOW values (LOW = on, HIGH = off)
+  static const uint8_t colours[7][3] = {
+    {LOW,  HIGH, HIGH},  // Red
+    {HIGH, LOW,  HIGH},  // Green
+    {HIGH, HIGH, LOW },  // Blue
+    {HIGH, LOW,  LOW },  // Cyan (G+B)
+    {LOW,  HIGH, LOW },  // Magenta (R+B)
+    {LOW,  LOW,  HIGH},  // Yellow (R+G)
+    {LOW,  LOW,  LOW },  // White (R+G+B)
+  };
+  digitalWrite(LED_R, colours[ledColorIdx][0]);
+  digitalWrite(LED_G, colours[ledColorIdx][1]);
+  digitalWrite(LED_B, colours[ledColorIdx][2]);
 }
 
 // ── Brightness control (LEDC PWM on GPIO 27) ────────────────
@@ -2910,7 +2938,7 @@ void drawSettingsMenu() {
     tft.setTextSize(2);
     tft.setTextColor(C_WHITE);
     tft.setCursor(22, 124);
-    tft.print("Red LED:");
+    tft.print("RGB LED:");
     uint32_t pillCol = ledOn ? C_GREEN : 0xFFAA44;
     tft.fillRoundRect(220, 118, 70, 28, 6, pillCol);
     tft.setTextSize(2);
@@ -3886,7 +3914,11 @@ bool handleMenuTouch(uint16_t tx, uint16_t ty) {
     // LED toggle (y=112 to y=152)
     if (ty >= 112 && ty <= 152) {
       ledOn = !ledOn;
-      digitalWrite(4, ledOn ? LOW : HIGH);
+      if (!ledOn) {
+        digitalWrite(LED_R, HIGH);
+        digitalWrite(LED_G, HIGH);
+        digitalWrite(LED_B, HIGH);
+      }
       drawSettingsMenu();
       return false;
     }
@@ -4088,8 +4120,9 @@ void setup() {
   ledcAttach(27, 5000, 8);
   ledcWrite(27, 255); // full brightness initially
 
-  pinMode(4, OUTPUT);
-  digitalWrite(4, HIGH);    // red LED off (active LOW)
+  pinMode(LED_R, OUTPUT); digitalWrite(LED_R, HIGH);  // all channels off (active LOW)
+  pinMode(LED_G, OUTPUT); digitalWrite(LED_G, HIGH);
+  pinMode(LED_B, OUTPUT); digitalWrite(LED_B, HIGH);
 
   tft.init();
   tft.setRotation(1);
@@ -4394,6 +4427,9 @@ void loop() {
       fetchInProgress = false;
       drawPSKMap();
     }
+
+    // RGB LED colour cycling
+    updateLedCycle();
 
     // Auto-brightness — sample LDR every 2 seconds
     if (autoBrightness && !screenAsleep) {
