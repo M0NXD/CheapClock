@@ -9,7 +9,7 @@
 #include <SPI.h>
 
 // ── Firmware version ────────────────────────────────────────
-#define FW_VERSION "1.1.0"
+#define FW_VERSION "1.1.1"
 #define OTA_VERSION_URL "https://arc.ntwk.co.uk/CheapClock/version.txt"
 #define OTA_FIRMWARE_URL "https://arc.ntwk.co.uk/CheapClock/CheapClock.ino.bin"
 
@@ -1398,7 +1398,7 @@ void drawContestCalendar() {
     // Mode badge
     tft.fillRoundRect(xBase + 2, rowY + 2, 28, 12, 2, modeCol);
     tft.setTextSize(1);
-    tft.setTextColor(C_WHITE);
+    tft.setTextColor(TFT_BLACK);
     int mw = tft.textWidth(contests[i].mode);
     tft.setCursor(xBase + 2 + (28 - mw) / 2, rowY + 4);
     tft.print(contests[i].mode);
